@@ -1,0 +1,205 @@
+1. Visão Geral
+
+Produto: SwiftShare – web app responsivo para transferência de arquivos até 2 GB, com download via token de 3–5 palavras e autodestruição imediata no primeiro download (ou expiração em 1 h–30 d).
+
+Arquitetura: Hexagonal (Ports & Adapters), modular, todos os serviços em containers Docker/Kubernetes, comunicação interna via rede de containers e Kafka.
+2. Objetivos de Negócio
+
+    TTFB UI < 200 ms em 3G
+
+    Upload 2 GB ≤ 180 s em 50 Mbps
+
+    Autodestruição ≤ 2 s após download
+
+    NPS ≥ 60 no 1º mês
+
+    Infra “dev+beta” ≤ US$ 100/mês
+
+3. Personas
+
+    Dev Rápido: compartilhar builds sem login
+
+    Designer: enviar PSDs pesados
+
+    Estudante: passar vídeos de aula sem nuvem pessoal
+
+4. Proposta de Valor
+
+    “Envie qualquer arquivo, memorize 3 palavras, baixe onde quiser – e o arquivo some na hora.”
+
+5. Histórias de Usuário (MVP)
+
+    Upload – envio anônimo até 2 GB; recebe token.
+
+    Download único – insere token, baixa e arquivo some.
+
+    Progress bar – progresso em real-time.
+
+    Expiração fallback – 1 h–30 d (padrão 7 d).
+
+    Feedback – aviso visual de deleção.
+
+6. Requisitos Funcionais
+ID	Descrição
+F-01	Upload resumível/multipart até 2 GB.
+F-02	Geração de token único de 3–5 palavras (dicionário 40 k).
+F-03	Metadados (token_hash, sha256, size, expires_at) em PostgreSQL + Redis.
+F-04	Download permitido só 1 vez; aciona deleção assíncrona.
+F-05	Expiração automática (1 h–30 d).
+F-06	API REST + WebSocket p/ progresso e status.
+F-07	Página /status/{token} (countdown + “Deletar agora”).
+F-08	Observabilidade: logs, métricas, tracing.
+7. Requisitos Não-Funcionais
+
+    Perf.: API ≤ 150 ms de latência; throughput ≥ 1 Gbps/pod.
+
+    Segurança: TLS 1.3; AES-256 em repouso (fs-level encryption); tokens hasheados (BLAKE3); XSS/CSRF/DoS protection.
+
+    Disponibilidade: 99.5 % (beta); réplica 2×.
+
+    Escalabilidade: stateless; HPA; eventos via Kafka.
+
+    Obs.: OpenTelemetry + Prometheus + Grafana.
+
+8. Fluxo de Alto Nível
+
+    POST /upload/init
+
+        Gera token + endpoint tus-resumível.
+
+    Cliente envia chunks via tus-node-server, que grava em volume local.
+
+    Ao fim, backend grava metadados (Postgres/Redis) e publica file.uploaded em Kafka.
+
+    Destinatário chama GET /download/{token}.
+
+    Backend faz stream do arquivo direto do volume local; ao concluir, publica file.downloaded.
+
+    File Deleter Worker (Kafka-consumer) deleta o arquivo do volume e o registro no DB.
+
+9. Arquitetura Hexagonal
+
+          ┌──────────────┐
+          │   React UI   │  (Adapter Web)
+          └──────┬───────┘
+                 │ REST/WebSocket
+┌────────────────▼──────────────────┐
+│         Interface Layer           │ (NestJS 13 + Express 5)
+└────────────────┬─────────────────┘
+                 │ Ports (UploadFile, DownloadFile)
+┌────────────────▼──────────────────┐
+│        Application Layer         │ (Use-cases)
+└────────────────┬─────────────────┘
+                 │ Domain Models (File, Token)
+┌────────────────▼──────────────────┐
+│          Domain Layer            │
+└────────────────┬─────────────────┘
+                 │ Adapters → PostgreSQL, LocalFileSystem, Kafka, Redis
+┌────────────────▼──────────────────┐
+│        Infrastructure Layer      │
+└───────────────────────────────────┘
+
+    Mensageria: Kafka 3.8 (tópicos: file.uploaded, file.downloaded, file.deleted, audit.logs).
+
+    Workers: kafkajs consumers para deleção e analytics.
+
+10. Stack & Versões (Jun 2025)
+Camada	Tecnologia	Versão
+Front-end	React 19 + TypeScript 5.5	Vite 6
+Estado	TanStack Query 5 + Zod 3.25	—
+UI	Tailwind 4 + Headless UI 2.2	—
+Upload	tus-js-client 3.0	—
+Back-end	Node.js 21 + NestJS 13 + Express 5	—
+ORM	Prisma 6	—
+DB	PostgreSQL 16.4	—
+Cache	Redis 7.2	—
+Broker	Confluent Kafka 3.8 + ZK	—
+Container	Docker 26 + Compose v3	—
+CI/CD	GitHub Actions → GHCR	—
+Obs/Sec	OpenTelemetry 1.8, Prometheus 2.55, Grafana 11	—
+11. Desempenho & Escalabilidade
+Métrica	Alvo
+Latência média API	≤ 150 ms
+Throughput upload	≥ 1 Gbps/pod
+Deleção pós-download	≤ 2 s
+RPO	0
+RTO	≤ 5 min
+12. KPIs
+
+    Upload concluído ≥ 97 %
+
+    Autodestruição OK ≥ 99 %
+
+    Erro 5xx ≤ 1 por 1 k req
+
+    Crescimento MAU +20 %/mês
+
+13. Critérios de Aceite
+
+    Envio, download e remoção (arquivo + DB) funcionando em rede 50 Mbps.
+
+    Token único (colisão < 10⁻⁶) e inválido após uso.
+
+    Todo tráfego via HTTPS/TLS 1.3.
+
+    Zero vulnerabilidades críticas (OWASP Top 10).
+
+14. Roadmap (6 Sprints)
+Sprint	Objetivo
+1	Infra local (volumes, Kafka, Postgres, Redis, Prometheus)
+2	Upload API + tus
+3	Download único + deleção via Kafka
+4	Front-end React (upload/download UI)
+5	Observabilidade & segurança
+6	Beta público
+15. Riscos & Mitigações
+Risco	Mitigação
+Pico de banda	Rate-limit + QoS at pod level
+Falha de deleção	Retry + DLQ Kafka + alertas
+Abuso de storage	Política de uso + expiração agressiva
+16. Fora de Escopo (Fase 1)
+
+    Apps nativos
+
+    Integração por e-mail/QR
+
+    Planos pagos
+
+    Autor: Yann 
+    Data: 16 jun 2025
+    Versão: 0.3-self-contained
+
+prompt
+
+Você é um engenheiro de software sênior, especialista em arquitetura Hexagonal/Ports-and-Adapters, NestJS, Kafka e React. 
+Use Node.js 21, NestJS 13, Express 5 e Prisma 6 no backend; React 19 + TypeScript 5.5, Vite 6 e TailwindCSS 4 no frontend. 
+Obedeça ao PRD fornecido. 
+Gere código completo, organizado em módulos, com testes e instruções de deploy em Docker Compose.
+Sempre comente trechos críticos e entregue em etapas claras (scaffold → API → frontend → testes → observabilidade).
+Modele cada resposta como “Passo X/6: …” até completar a entrega.
+
+Baseie-se no PRD a seguir para desenvolver **do zero** a aplicação SwiftShare (MVP):
+
+[insira aqui o PRD completo ou um link para ele]
+
+**Objetivo deste chat:**  
+1. Scaffold do projeto: mono-repo com backend + frontend + infra (docker-compose).  
+2. Implementar endpoints REST e WebSocket (upload resumível, download único, status).  
+3. Frontend React com drag-and-drop e barra de progresso.  
+4. Worker Kafka para deleção, logs e métricas.  
+5. Testes E2E, integração e instruções de deployment.  
+6. Observabilidade (OpenTelemetry + Prometheus/Grafana).
+
+**Formato de entrega:**  
+- Responda em “Passo X/Y”  
+- Cada passo com nome, descrição e código (quando houver).  
+- Ao final, dê instruções para rodar e testar localmente.  
+
+3. Parâmetros de execução
+
+    Modelo: o4minihigh
+
+    Temperatura: 0.2 (maior precisão)
+
+    Max tokens: suficentes para incluir código (ex.: 16 k)
+

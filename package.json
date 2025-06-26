@@ -1,0 +1,17 @@
+{
+  "name": "swiftshare",
+  "private": true,
+  "workspaces": ["backend", "frontend"],
+  "scripts": {
+    "start:dev": "concurrently \"npm:dev:*\"",
+    "dev:backend": "cd backend && nest start --watch",
+    "dev:frontend": "cd frontend && vite",
+    "lint": "eslint --ext .ts,.tsx ."
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0",
+    "eslint": "^8.50.0",
+    "prettier": "^3.0.0"
+  }
+}
+

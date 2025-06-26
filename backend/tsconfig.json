@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "module":      "nodenext",   
+    "target":      "ES2022",
+    "moduleResolution": "nodenext",
+    "rootDir":     "src",
+    "outDir":      "dist",
+    "types":       ["node"],
+    "strict":      true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata":  true,
+    "esModuleInterop":        true,
+    "skipLibCheck":           true
+  }
+}
+
