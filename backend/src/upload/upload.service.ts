@@ -36,22 +36,34 @@ export class UploadService {
     });
 
     this.tus.on('post-finish', async ({ file }) => {
-      const token   = this.genToken();
-      const expires = Number(process.env.DEFAULT_EXPIRE_SEC ?? 60 * 60 * 24 * 7);
-      const expiresAt = new Date(Date.now() + expires * 1000);
+  const token     = this.genToken();
+  const expires   = Number(process.env.DEFAULT_EXPIRE_SEC ?? 60 * 60 * 24 * 7);
+  const expiresAt = new Date(Date.now() + expires * 1000);
 
-      await this.prisma.file.create({
-        data: {
-          token,
-          tokenHash: token,
-          size: file.size,
-          expiresAt,
-        },
-      });
+  const metadata: Record<string, string> = {};
+  const rawMetadata = file.upload_metadata?.split(',') ?? [];
 
-      await this.redis.set(token, file.id, expires);
-      await this.kafka.emit('file.uploaded', { fileId: file.id, token, size: file.size });
-    });
+  for (const pair of rawMetadata) {
+    const [key, value] = pair.split(' ');
+    if (key && value) metadata[key] = Buffer.from(value, 'base64').toString('utf8');
   }
-}
+
+  await this.prisma.file.create({
+    data: {
+      token,
+      tokenHash: token,
+      size: file.size,
+      expiresAt,
+      filename: metadata['filename'] ?? null,  
+    },
+  });
+
+  await this.redis.set(token, file.id, expires);
+  await this.kafka.emit('file.uploaded', {
+    fileId: file.id,
+    token,
+    size: file.size,
+    filename: metadata['filename'],
+  });
+});
 

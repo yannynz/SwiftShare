@@ -1,14 +1,13 @@
-import { All, Controller, Req, Res } from '@nestjs/common';
-import { UploadService }             from './upload.service.js';
-import type { Request, Response }    from 'express';
+import { Controller, Get, Param } from '@nestjs/common';
+import { FileService } from './file.service.js';
 
-@Controller('upload/files')
+@Controller('/file')
 export class UploadController {
-  constructor(private readonly uploadService: UploadService) {}
+  constructor(private readonly service: FileService); // <- nome precisa ser "service"
 
-  @All()
-  async handle(@Req() req: Request, @Res() res: Response) {
-    return this.uploadService.tus.handle(req, res);
+  @Get('/:token')
+  getFileMetadata(@Param('token') token: string) {
+    return this.service.getMetadata(token); // <- também usa "this.service"
   }
 }
 

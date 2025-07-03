@@ -13,5 +13,6 @@ model File {
   tokenHash  String
   size       Int
   expiresAt  DateTime
+  filename   String?
 }
 
